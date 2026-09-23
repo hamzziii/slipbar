@@ -1,0 +1,5 @@
+build/
+Resources/AppIcon.iconset/
+Resources/AppIcon-1024.png
+Resources/AppIcon-preview.png
+.DS_Store
