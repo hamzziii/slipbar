@@ -1,7 +1,7 @@
 # Slip
 
 가벼운 macOS 메뉴바 아이콘 숨김 도구. 숨기기 / 보이기만 합니다.  
-**웹사이트: <https://wiswis77.github.io/slipbar/>**  
+**웹사이트: <https://hamzziii.github.io/slipbar/>**  
 [Hidden Bar](https://github.com/dwarvesf/hidden)와 같은 **spacer 확장** 방식.
 
 - macOS 26 이상 (macOS 27에서 테스트)
