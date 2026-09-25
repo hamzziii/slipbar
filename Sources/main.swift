@@ -49,11 +49,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var hotKeyEnabled: Bool { UserDefaults.standard.bool(forKey: "hotKeyEnabled") }
     private var swipeEnabled: Bool { UserDefaults.standard.bool(forKey: "swipeEnabled") }
 
-    /// macOS 27 drops a status item that reaches ~50% of the display width
-    /// instead of letting it push; stay under that.
+    /// Pushes the icons just past the middle of the display, where macOS 27 folds them into its
+    /// « overflow. A longer spacer (e.g. a fixed 45% of the screen) gets ignored behind long app
+    /// menus and the icons pop back.
     private var hideLength: CGFloat {
-        let narrowest = NSScreen.screens.map(\.frame.width).min() ?? 1440
-        return max(floor(narrowest * 0.45), 200)
+        let window = toggleItem?.button?.window
+        let frame = (window?.screen ?? NSScreen.main)?.frame ?? NSRect(x: 0, y: 0, width: 1440, height: 900)
+        let rightEdge = window?.frame.minX ?? frame.maxX - frame.width * 0.2
+        return min(max(rightEdge - (frame.minX + frame.width * 0.53), 80), floor(frame.width * 0.45))
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -292,7 +295,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc private func handleToggleClick(_ sender: NSStatusBarButton) {
         guard let event = NSApp.currentEvent else { return }
-        if event.type == .rightMouseUp || event.modifierFlags.contains(.control) {
+        // On macOS 27 the click event's modifier flags lag one click behind for a background app.
+        if event.type == .rightMouseUp || CGEventSource.flagsState(.combinedSessionState).contains(.maskControl) {
             presentMenu(for: event, from: sender)
         } else {
             setCollapsed(!isCollapsed)
