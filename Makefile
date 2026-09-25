@@ -25,7 +25,7 @@ $(APP): $(SRC) Info.plist Resources/AppIcon.icns
 			-sdk "$(SDK)" \
 			-target $$arch-apple-macos$(MIN_OS) \
 			-framework AppKit \
-			-framework ServiceManagement \
+			-framework ServiceManagement -framework Carbon \
 			-o "$(BUILD)/$(APP_NAME)-$$arch" \
 			$(SRC) || exit 1; \
 	done
