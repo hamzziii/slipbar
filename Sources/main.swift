@@ -41,7 +41,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var glyphTimer: Timer?
     private var glyphActivity: NSObjectProtocol?
     private var hotKey: HotKey?
-    private var scrollMonitor: Any?
+    private var scrollMonitors: [Any] = []
     private var swipeDistance: CGFloat = 0
     private var swipeHandled = false
     private var onboarding: OnboardingController?
@@ -158,7 +158,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     @objc private func screenParametersChanged() {
-        if isCollapsed { applyCollapsedState() }
+        // Let the bar settle on the new display layout before measuring where ●› sits.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
+            guard let self, self.isCollapsed else { return }
+            self.applyCollapsedState()
+        }
     }
 
     // MARK: Actions
@@ -198,13 +202,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// Two-finger swipe on the menu bar: toward the right brings icons back, toward the left tucks them.
     private func updateSwipeMonitor() {
         if swipeEnabled, toggleItem != nil {
-            guard scrollMonitor == nil else { return }
-            scrollMonitor = NSEvent.addGlobalMonitorForEvents(matching: .scrollWheel) { [weak self] event in
+            guard scrollMonitors.isEmpty else { return }
+            let global = NSEvent.addGlobalMonitorForEvents(matching: .scrollWheel) { [weak self] event in
                 self?.handleScroll(event)
             }
-        } else if let scrollMonitor {
-            NSEvent.removeMonitor(scrollMonitor)
-            self.scrollMonitor = nil
+            // A swipe that starts over ●› is delivered to Slip itself, which global monitors skip.
+            let local = NSEvent.addLocalMonitorForEvents(matching: .scrollWheel) { [weak self] event in
+                self?.handleScroll(event)
+                return event
+            }
+            scrollMonitors = [global, local].compactMap { $0 }
+        } else {
+            scrollMonitors.forEach(NSEvent.removeMonitor)
+            scrollMonitors = []
         }
     }
 
@@ -308,10 +318,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         menu.addItem(withTitle: isCollapsed ? "Slip Back" : "Slip Away",
                      action: #selector(menuToggle), keyEquivalent: "")
         menu.addItem(.separator())
-        menu.addItem(withTitle: "Preferences…", action: #selector(openPreferences), keyEquivalent: ",")
+        menu.addItem(withTitle: L("설정…", "Preferences…"), action: #selector(openPreferences), keyEquivalent: ",")
         menu.addItem(withTitle: L("사용법 보기", "How to Use Slip"), action: #selector(showOnboarding), keyEquivalent: "")
         menu.addItem(.separator())
-        menu.addItem(withTitle: "Quit Slip", action: #selector(quit), keyEquivalent: "q")
+        menu.addItem(withTitle: L("Slip 종료", "Quit Slip"), action: #selector(quit), keyEquivalent: "q")
         menu.items.forEach { $0.target = self }
         NSMenu.popUpContextMenu(menu, with: event, for: sender)
     }
@@ -366,7 +376,7 @@ final class PreferencesController: NSObject, NSWindowDelegate {
     private let autoCollapsePopup = NSPopUpButton(frame: .zero, pullsDown: false)
     private let statusLabel = NSTextField(labelWithString: "")
 
-    private let autoCollapseTitles = ["5초", "10초", "30초", "1분", "끔"]
+    private let autoCollapseTitles = [L("5초", "5 sec"), L("10초", "10 sec"), L("30초", "30 sec"), L("1분", "1 min"), L("끔", "Off")]
     private let autoCollapseValues: [TimeInterval] = [5, 10, 30, 60, 0]
 
     init(app: AppDelegate) {
@@ -401,7 +411,7 @@ final class PreferencesController: NSObject, NSWindowDelegate {
         swipeSwitch.state = s.swipeEnabled ? .on : .off
         hotKeySwitch.state = s.hotKeyEnabled ? .on : .off
         autoCollapsePopup.selectItem(at: autoCollapseValues.firstIndex(of: s.autoCollapseSeconds) ?? autoCollapseValues.count - 1)
-        statusLabel.stringValue = s.isCollapsed ? "상태: 숨김 (‹●)" : "상태: 보임 (●›)"
+        statusLabel.stringValue = s.isCollapsed ? L("상태: 숨김 (‹●)", "Status: Tucked (‹●)") : L("상태: 보임 (●›)", "Status: Shown (●›)")
     }
 
     private func buildWindow() {
@@ -437,7 +447,7 @@ final class PreferencesController: NSObject, NSWindowDelegate {
         statusLabel.textColor = .secondaryLabelColor
         statusLabel.frame = NSRect(x: 70, y: h - 57, width: w - 90, height: 16)
 
-        let hint = NSTextField(labelWithString: "⌘-드래그로 ●› 왼쪽 = 숨김 대상")
+        let hint = NSTextField(labelWithString: L("⌘-드래그로 ●› 왼쪽 = 숨김 대상", "⌘-drag icons left of ●› to hide them"))
         hint.font = .systemFont(ofSize: 11)
         hint.textColor = .tertiaryLabelColor
         hint.frame = NSRect(x: 20, y: h - 86, width: w - 40, height: 16)
@@ -446,17 +456,20 @@ final class PreferencesController: NSObject, NSWindowDelegate {
         content.addSubview(title)
         content.addSubview(statusLabel)
         content.addSubview(hint)
-        content.addSubview(row("메뉴바 아이콘", "끄면 메뉴바에서 숨김", y: 234, width: w, control: menuBarSwitch, #selector(menuBarChanged)))
-        content.addSubview(row("Slip Away", "지금 숨김/표시", y: 192, width: w, control: slipSwitch, #selector(slipChanged)))
+        content.addSubview(row(L("메뉴바 아이콘", "Menu Bar Icon"), L("끄면 메뉴바에서 숨김", "Off removes ●› from the menu bar"),
+                               y: 234, width: w, control: menuBarSwitch, #selector(menuBarChanged)))
+        content.addSubview(row("Slip Away", L("지금 숨김/표시", "Tuck or reveal now"), y: 192, width: w, control: slipSwitch, #selector(slipChanged)))
         content.addSubview(row(L("쓸어서 열기", "Swipe to Slip"), L("메뉴바에서 두 손가락으로 좌우로 쓸기", "Two-finger swipe on the menu bar"),
                                y: 150, width: w, control: swipeSwitch, #selector(swipeChanged)))
         content.addSubview(row(L("단축키 ⌥⌘\\", "Shortcut ⌥⌘\\"), L("어디서든 숨김/표시 (한글 자판은 ₩ 키)", "Tuck or reveal from anywhere"),
                                y: 108, width: w, control: hotKeySwitch, #selector(hotKeyChanged)))
-        content.addSubview(row("로그인 시 실행", "Mac 켜면 같이 실행", y: 66, width: w, control: loginSwitch, #selector(loginChanged)))
+        content.addSubview(row(L("로그인 시 실행", "Launch at Login"), L("Mac 켜면 같이 실행", "Start with your Mac"),
+                               y: 66, width: w, control: loginSwitch, #selector(loginChanged)))
 
         autoCollapsePopup.addItems(withTitles: autoCollapseTitles)
         autoCollapsePopup.frame.size = NSSize(width: 110, height: 26)
-        content.addSubview(row("자동 숨김", "펼친 뒤 다시 접기", y: 18, width: w, control: autoCollapsePopup, #selector(autoCollapseChanged)))
+        content.addSubview(row(L("자동 숨김", "Auto-Tuck"), L("펼친 뒤 다시 접기", "Tuck again after revealing"),
+                               y: 18, width: w, control: autoCollapsePopup, #selector(autoCollapseChanged)))
     }
 
     private func row(_ title: String, _ detail: String, y: CGFloat, width: CGFloat, control: NSControl, _ action: Selector) -> NSView {
