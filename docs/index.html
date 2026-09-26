@@ -8,8 +8,8 @@
 <meta name="keywords" content="macOS menu bar, hide menu bar icons, Hidden Bar alternative, menu bar manager, Bartender alternative, macOS 27, 메뉴바 아이콘 숨기기, 맥 메뉴바 정리">
 <meta name="author" content="hamzziii">
 <link rel="canonical" href="https://hamzziii.github.io/slipbar/">
-<link rel="icon" type="image/png" href="favicon.png">
-<link rel="apple-touch-icon" href="icon.png">
+<link rel="icon" type="image/png" href="favicon.png?v=1.2">
+<link rel="apple-touch-icon" href="icon.png?v=1.2">
 <meta name="theme-color" content="#16181f">
 
 <meta property="og:type" content="website">
@@ -79,22 +79,23 @@
   /* Menu bar demo */
   .demo { margin: 48px auto 8px; max-width: 720px; border-radius: 16px; overflow: hidden; border: 1px solid var(--line);
           background: linear-gradient(135deg, #5b6f94 0%, #8a7fb0 55%, #d59aa3 100%); }
-  .bar { height: 34px; display: flex; align-items: center; justify-content: flex-end; gap: 16px; padding: 0 14px;
+  .bar { height: 34px; display: flex; align-items: center; justify-content: flex-end; gap: 12px; padding: 0 14px;
          background: rgba(30, 34, 46, .35); backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px); color: #fff; overflow: hidden; }
   .bar .left { margin-right: auto; display: flex; gap: 18px; font-size: 13.5px; font-weight: 500; white-space: nowrap;
                min-width: 0; overflow: hidden; }
   @media (max-width: 600px) {
-    .bar { gap: 12px; padding: 0 10px; }
+    .bar { gap: 10px; padding: 0 10px; }
     .bar .left span, .bar .left b + b, .hidden-group svg:nth-child(n+4) { display: none; }
   }
   .bar .left b { font-weight: 700; }
   .bar svg { display: block; width: 16px; height: 16px; flex: none; }
-  .hidden-group { display: flex; gap: 16px; align-items: center; max-width: 400px;
+  .hidden-group { display: flex; gap: 12px; align-items: center; max-width: 400px;
                   transition: max-width .45s cubic-bezier(.4,0,.2,1), opacity .35s, transform .45s cubic-bezier(.4,0,.2,1); }
   .demo.tucked .hidden-group { max-width: 0; opacity: 0; transform: translateX(-60px); }
-  .toggle { background: none; border: 0; padding: 4px; margin: 0 -4px; color: #fff; cursor: pointer; border-radius: 6px; }
+  /* Flush left like the real menu-bar glyph; only keep a little room on the right. */
+  .toggle { background: none; border: 0; padding: 2px 4px 2px 0; margin: 0; color: #fff; cursor: pointer; border-radius: 6px; }
   .toggle:hover { background: rgba(255,255,255,.15); }
-  .toggle svg { width: 13.2px; }
+  .toggle svg { width: 14px; height: 17px; display: block; }
   .toggle .chev { transform-box: view-box; transform-origin: 7.3px 8px; transition: transform .45s cubic-bezier(.4,0,.2,1); }
   .demo.tucked .toggle .chev { transform: rotate(-180deg); }
   .clock { font-size: 13.5px; font-weight: 500; white-space: nowrap; }
@@ -140,7 +141,7 @@
 <body>
 <div class="wrap">
   <header class="top">
-    <a class="brand" href="./"><img src="favicon.png" alt="">SlipBar</a>
+    <a class="brand" href="./"><img src="favicon.png?v=1.2" alt="">SlipBar</a>
     <div class="lang" role="group" aria-label="Language">
       <button type="button" data-lang="en">EN</button>
       <button type="button" data-lang="ko">한국어</button>
@@ -149,7 +150,7 @@
 
   <main>
     <div class="hero">
-      <img class="icon" src="icon.png" alt="SlipBar app icon" width="128" height="128">
+      <img class="icon" src="icon.png?v=1.2" alt="SlipBar app icon" width="128" height="128">
       <h1 class="en">Hide menu bar icons.<br>That's it.</h1>
       <h1 class="ko">메뉴바 아이콘 숨기기.<br>그게 전부.</h1>
       <p class="lead en">One click to tuck them away.<br>One more to bring them back.</p>
@@ -177,7 +178,7 @@
         </div>
         <button class="toggle" id="toggle" type="button" aria-label="Toggle hidden icons" title="Slip Away">
           <svg viewBox="0 0 13.2 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M.95 3.5v9" stroke-opacity=".5"/>
+            <path d="M.95 3.5v9" stroke-opacity=".7"/>
             <path class="chev" d="M5.25 3.5l4.1 4.5-4.1 4.5"/>
           </svg>
         </button>
@@ -186,7 +187,7 @@
         <span class="clock" id="clock">Wed 11:47 PM</span>
       </div>
       <div class="desk">
-        <span class="en">↑ Click the › in the menu bar</span><span class="ko">↑ 메뉴바의 › 를 눌러 보세요</span>
+        <span class="en">↑ Click |› in the menu bar</span><span class="ko">↑ 메뉴바의 |› 를 눌러 보세요</span>
       </div>
     </div>
     <p class="demo-caption en">Try it — this is how SlipBar looks in your menu bar.</p>
