@@ -1,4 +1,4 @@
-APP_NAME := Slip
+APP_NAME := SlipBar
 SRC      := Sources/main.swift
 BUILD    := build
 APP      := $(BUILD)/$(APP_NAME).app

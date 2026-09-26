@@ -7,9 +7,9 @@ func L(_ ko: String, _ en: String) -> String {
     Locale.preferredLanguages.first?.hasPrefix("ko") == true ? ko : en
 }
 
-/// Slip — lightweight menu-bar icon hider for macOS.
+/// SlipBar — lightweight menu-bar icon hider for macOS.
 ///
-/// There is no public API to hide another app's status items. Slip uses the
+/// There is no public API to hide another app's status items. SlipBar uses the
 /// Hidden Bar technique: an invisible status item (the spacer) sits just left
 /// of the › toggle and widens so everything on its left is pushed off-screen.
 ///
@@ -29,6 +29,7 @@ enum Slip {
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private var toggleItem: NSStatusItem?
+    private let glyphView = GlyphView()
     private var spacerItem: NSStatusItem?
     private var isCollapsed = false
     private var menuBarEnabled = true
@@ -36,7 +37,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var autoCollapseSeconds: TimeInterval = 0
     private var autoCollapseTimer: Timer?
     private var prefs: PreferencesController?
-    /// Toggle glyph animation: 0 = open (●›), 1 = tucked (‹●).
+    /// Toggle glyph animation: 0 = open (›), 1 = tucked (‹).
     private var glyphProgress: CGFloat = 0
     private var glyphTimer: Timer?
     private var glyphActivity: NSObjectProtocol?
@@ -49,14 +50,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var hotKeyEnabled: Bool { UserDefaults.standard.bool(forKey: "hotKeyEnabled") }
     private var swipeEnabled: Bool { UserDefaults.standard.bool(forKey: "swipeEnabled") }
 
-    /// Pushes the icons just past the middle of the display, where macOS 27 folds them into its
-    /// « overflow. A longer spacer (e.g. a fixed 45% of the screen) gets ignored behind long app
-    /// menus and the icons pop back.
+    /// macOS 27 only hides the pushed icons quietly within a narrow band of spacer lengths, measured
+    /// at about half the display width minus 235…15pt: shorter shows its « overflow button, longer
+    /// gets the spacer ignored and the icons pop back. Stay in the lower part of that band, which
+    /// holds up better behind long app menus.
     private var hideLength: CGFloat {
-        let window = toggleItem?.button?.window
-        let frame = (window?.screen ?? NSScreen.main)?.frame ?? NSRect(x: 0, y: 0, width: 1440, height: 900)
-        let rightEdge = window?.frame.minX ?? frame.maxX - frame.width * 0.2
-        return min(max(rightEdge - (frame.minX + frame.width * 0.53), 80), floor(frame.width * 0.45))
+        let width = (toggleItem?.button?.window?.screen ?? NSScreen.main)?.frame.width ?? 1440
+        return floor(width / 2 - 180)
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -78,7 +78,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         )
     }
 
-    /// Opening Slip.app again shows Preferences — the way back if the menu-bar icon is off.
+    /// Opening SlipBar.app again shows Preferences — the way back if the menu-bar icon is off.
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
         openPreferences()
         return false
@@ -94,6 +94,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         toggle.autosaveName = "SlipToggle"
         if let button = toggle.button {
             button.imagePosition = .imageOnly
+            button.image = Icons.placeholder
+            // Drawn over the button's left padding, which the image itself can't reach.
+            glyphView.translatesAutoresizingMaskIntoConstraints = false
+            button.addSubview(glyphView)
+            NSLayoutConstraint.activate([
+                glyphView.leadingAnchor.constraint(equalTo: button.leadingAnchor),
+                glyphView.centerYAnchor.constraint(equalTo: button.centerYAnchor),
+                glyphView.widthAnchor.constraint(equalToConstant: Icons.glyphSize.width),
+                glyphView.heightAnchor.constraint(equalToConstant: Icons.glyphSize.height),
+            ])
             button.target = self
             button.action = #selector(handleToggleClick(_:))
             button.sendAction(on: [.leftMouseUp, .rightMouseUp])
@@ -125,6 +135,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         guard let spacerItem, let toggleItem else { return }
         spacerItem.length = isCollapsed ? hideLength : 0
         toggleItem.button?.toolTip = isCollapsed ? "Slip Back" : "Slip Away"
+        toggleItem.button?.setAccessibilityLabel(isCollapsed ? "Slip Back" : "Slip Away")
         animateGlyph(to: isCollapsed ? 1 : 0,
                      animated: animated && !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion)
     }
@@ -133,18 +144,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         stopGlyphAnimation()
         guard animated, glyphProgress != target else {
             glyphProgress = target
-            toggleItem?.button?.image = Icons.glyph(progress: target)
+            glyphView.image = Icons.glyph(progress: target)
             return
         }
-        let step: CGFloat = target > glyphProgress ? 0.125 : -0.125
+        // Matches how long macOS takes to slide the icons in or out.
+        let duration = 0.28 * Double(abs(target - glyphProgress))
+        let from = glyphProgress, start = CACurrentMediaTime()
         // App Nap otherwise throttles this background app's timers and the animation stalls.
-        glyphActivity = ProcessInfo.processInfo.beginActivity(options: .userInitiated, reason: "Slip toggle animation")
-        let timer = Timer(timeInterval: 0.025, repeats: true) { [weak self] _ in
+        glyphActivity = ProcessInfo.processInfo.beginActivity(options: .userInitiated, reason: "SlipBar toggle animation")
+        let timer = Timer(timeInterval: 1.0 / 60, repeats: true) { [weak self] _ in
             guard let self else { return }
-            let next = self.glyphProgress + step
-            self.glyphProgress = step > 0 ? min(next, target) : max(next, target)
-            self.toggleItem?.button?.image = Icons.glyph(progress: self.glyphProgress)
-            if self.glyphProgress == target { self.stopGlyphAnimation() }
+            let t = min((CACurrentMediaTime() - start) / duration, 1)
+            self.glyphProgress = from + (target - from) * CGFloat(t)
+            self.glyphView.image = Icons.glyph(progress: self.glyphProgress)
+            if t >= 1 { self.stopGlyphAnimation() }
         }
         glyphTimer = timer
         RunLoop.main.add(timer, forMode: .common)
@@ -158,7 +171,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     @objc private func screenParametersChanged() {
-        // Let the bar settle on the new display layout before measuring where ●› sits.
+        // Let the bar settle on the new display layout before reading which screen › is on.
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
             guard let self, self.isCollapsed else { return }
             self.applyCollapsedState()
@@ -206,7 +219,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             let global = NSEvent.addGlobalMonitorForEvents(matching: .scrollWheel) { [weak self] event in
                 self?.handleScroll(event)
             }
-            // A swipe that starts over ●› is delivered to Slip itself, which global monitors skip.
+            // A swipe that starts over › is delivered to SlipBar itself, which global monitors skip.
             let local = NSEvent.addLocalMonitorForEvents(matching: .scrollWheel) { [weak self] event in
                 self?.handleScroll(event)
                 return event
@@ -279,7 +292,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 try SMAppService.mainApp.unregister()
             }
         } catch {
-            NSLog("Slip launch-at-login: \(error.localizedDescription)")
+            NSLog("SlipBar launch-at-login: \(error.localizedDescription)")
         }
         if SMAppService.mainApp.status == .requiresApproval {
             SMAppService.openSystemSettingsLoginItems()
@@ -319,9 +332,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                      action: #selector(menuToggle), keyEquivalent: "")
         menu.addItem(.separator())
         menu.addItem(withTitle: L("설정…", "Preferences…"), action: #selector(openPreferences), keyEquivalent: ",")
-        menu.addItem(withTitle: L("사용법 보기", "How to Use Slip"), action: #selector(showOnboarding), keyEquivalent: "")
+        menu.addItem(withTitle: L("사용법 보기", "How to Use SlipBar"), action: #selector(showOnboarding), keyEquivalent: "")
         menu.addItem(.separator())
-        menu.addItem(withTitle: L("Slip 종료", "Quit Slip"), action: #selector(quit), keyEquivalent: "q")
+        menu.addItem(withTitle: L("SlipBar 종료", "Quit SlipBar"), action: #selector(quit), keyEquivalent: "q")
         menu.items.forEach { $0.target = self }
         NSMenu.popUpContextMenu(menu, with: event, for: sender)
     }
@@ -411,7 +424,7 @@ final class PreferencesController: NSObject, NSWindowDelegate {
         swipeSwitch.state = s.swipeEnabled ? .on : .off
         hotKeySwitch.state = s.hotKeyEnabled ? .on : .off
         autoCollapsePopup.selectItem(at: autoCollapseValues.firstIndex(of: s.autoCollapseSeconds) ?? autoCollapseValues.count - 1)
-        statusLabel.stringValue = s.isCollapsed ? L("상태: 숨김 (‹●)", "Status: Tucked (‹●)") : L("상태: 보임 (●›)", "Status: Shown (●›)")
+        statusLabel.stringValue = s.isCollapsed ? L("상태: 숨김 (‹)", "Status: Tucked (‹)") : L("상태: 보임 (›)", "Status: Shown (›)")
     }
 
     private func buildWindow() {
@@ -423,7 +436,7 @@ final class PreferencesController: NSObject, NSWindowDelegate {
             backing: .buffered,
             defer: false
         )
-        window.title = "Slip"
+        window.title = "SlipBar"
         window.isReleasedWhenClosed = false
         window.delegate = self
         window.center()
@@ -436,7 +449,7 @@ final class PreferencesController: NSObject, NSWindowDelegate {
         icon.imageScaling = .scaleProportionallyUpOrDown
 
         let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? ""
-        let titleText = NSMutableAttributedString(string: "Slip", attributes: [.font: NSFont.systemFont(ofSize: 15, weight: .semibold)])
+        let titleText = NSMutableAttributedString(string: "SlipBar", attributes: [.font: NSFont.systemFont(ofSize: 15, weight: .semibold)])
         titleText.append(NSAttributedString(string: "  " + version, attributes: [
             .font: NSFont.systemFont(ofSize: 11), .foregroundColor: NSColor.secondaryLabelColor,
         ]))
@@ -447,7 +460,7 @@ final class PreferencesController: NSObject, NSWindowDelegate {
         statusLabel.textColor = .secondaryLabelColor
         statusLabel.frame = NSRect(x: 70, y: h - 57, width: w - 90, height: 16)
 
-        let hint = NSTextField(labelWithString: L("⌘-드래그로 ●› 왼쪽 = 숨김 대상", "⌘-drag icons left of ●› to hide them"))
+        let hint = NSTextField(labelWithString: L("⌘-드래그로 › 왼쪽 = 숨김 대상", "⌘-drag icons left of › to hide them"))
         hint.font = .systemFont(ofSize: 11)
         hint.textColor = .tertiaryLabelColor
         hint.frame = NSRect(x: 20, y: h - 86, width: w - 40, height: 16)
@@ -456,7 +469,7 @@ final class PreferencesController: NSObject, NSWindowDelegate {
         content.addSubview(title)
         content.addSubview(statusLabel)
         content.addSubview(hint)
-        content.addSubview(row(L("메뉴바 아이콘", "Menu Bar Icon"), L("끄면 메뉴바에서 숨김", "Off removes ●› from the menu bar"),
+        content.addSubview(row(L("메뉴바 아이콘", "Menu Bar Icon"), L("끄면 메뉴바에서 숨김", "Off removes › from the menu bar"),
                                y: 234, width: w, control: menuBarSwitch, #selector(menuBarChanged)))
         content.addSubview(row("Slip Away", L("지금 숨김/표시", "Tuck or reveal now"), y: 192, width: w, control: slipSwitch, #selector(slipChanged)))
         content.addSubview(row(L("쓸어서 열기", "Swipe to Slip"), L("메뉴바에서 두 손가락으로 좌우로 쓸기", "Two-finger swipe on the menu bar"),
@@ -542,8 +555,8 @@ final class OnboardingController: NSObject, NSPopoverDelegate {
         view.addSubview(title)
 
         let steps = [
-            L("⌘를 누른 채, 숨길 아이콘을\n●› 왼쪽으로 끌어다 놓으세요", "Hold ⌘ and drag the icons you want to hide to the left of ●›"),
-            L("●›를 누르면 숨고, 다시 누르면 돌아와요", "Click ●› to tuck them away. Click again to bring them back."),
+            L("⌘를 누른 채, 숨길 아이콘을\n› 왼쪽으로 끌어다 놓으세요", "Hold ⌘ and drag the icons you want to hide to the left of ›"),
+            L("›를 누르면 숨고, 다시 누르면 돌아와요", "Click › to tuck them away. Click again to bring them back."),
             L("메뉴바를 두 손가락으로 쓸어도 되고,\n⌥⌘\\ 단축키도 있어요", "Or swipe the menu bar with two fingers, or press ⌥⌘\\"),
         ]
         var top: CGFloat = 164
@@ -642,7 +655,8 @@ final class DemoBarView: NSView {
         white.set()
         NSRect(origin: .zero, size: glyph.size).fill(using: .sourceAtop)
         glyph.unlockFocus()
-        glyph.draw(in: NSRect(x: glyphX, y: midY - 7, width: 14, height: 14))
+        let gs = Icons.glyphSize
+        glyph.draw(in: NSRect(x: glyphX, y: midY - gs.height / 2, width: gs.width, height: gs.height))
 
         white.withAlphaComponent(1 - eased).setFill()
         for i in 0..<3 {
@@ -697,30 +711,47 @@ final class HotKey {
 
 // MARK: - Icons
 
-private enum Icons {
-    /// Toggle glyph: a chevron pushing a ball.
-    /// progress 0 = open (●›), 1 = tucked (‹●); in between the chevron flips and the
-    /// ball slips past it, shrinking as they cross. Fixed width so the bar doesn't shift.
-    static func glyph(progress: CGFloat) -> NSImage {
-        let size: CGFloat = 14, mid: CGFloat = 7
-        let t = progress < 0.5 ? 2 * progress * progress : 1 - pow(2 - 2 * progress, 2) / 2
-        let direction = 1 - 2 * t   // 1 = ›, -1 = ‹
-        let image = NSImage(size: NSSize(width: size, height: size), flipped: false) { _ in
-            let center = mid + 2.8 * direction
-            let path = NSBezierPath()
-            path.lineWidth = 1.8
-            path.lineCapStyle = .round
-            path.lineJoinStyle = .round
-            path.move(to: NSPoint(x: center - 2.2 * direction, y: mid + 4.2))
-            path.line(to: NSPoint(x: center + 2.2 * direction, y: mid))
-            path.line(to: NSPoint(x: center - 2.2 * direction, y: mid - 4.2))
-            NSColor.black.setStroke()
-            path.stroke()
+/// Shows the toggle glyph without taking the button's clicks.
+final class GlyphView: NSImageView {
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
+}
 
-            let ballX = mid - 3.2 * direction
-            let ball = 4.2 * (0.45 + 0.55 * abs(direction))
-            NSColor.black.setFill()
-            NSBezierPath(ovalIn: NSRect(x: ballX - ball / 2, y: mid - ball / 2, width: ball, height: ball)).fill()
+private enum Icons {
+    static let glyphSize = NSSize(width: 13.2, height: 16)
+
+    /// Sizes the toggle button. macOS pads a status item's image 8pt on each side, and the spacer on
+    /// the left already leaves 8pt, so the glyph (drawn separately, flush left) keeps only the right
+    /// padding and the gap to the icons on its left matches the gap between any two icons.
+    static let placeholder: NSImage = {
+        let image = NSImage(size: NSSize(width: glyphSize.width + 8 - 16, height: glyphSize.height))
+        image.isTemplate = true
+        return image
+    }()
+
+    /// Toggle glyph: a faint bar (the edge the icons slip behind) and a chevron, drawn with one
+    /// stroke so both share width and height, in the app icon's proportions. progress 0 = open (|›),
+    /// 1 = tucked (|‹, toward the hidden icons like macOS's «); in between the chevron turns over the
+    /// top while the bar stays put. The canvas is just wide enough for the turning chevron.
+    static func glyph(progress: CGFloat) -> NSImage {
+        let size = glyphSize, midY = glyphSize.height / 2
+        let stroke: CGFloat = 1.8, halfHeight: CGFloat = 4.5, depth: CGFloat = 4.1
+        let barX: CGFloat = 0.95, tipX: CGFloat = 5.25
+        let t = progress < 0.5 ? 2 * progress * progress : 1 - pow(2 - 2 * progress, 2) / 2
+        let image = NSImage(size: size, flipped: false) { _ in
+            guard let context = NSGraphicsContext.current?.cgContext else { return false }
+            context.setLineWidth(stroke)
+            context.setLineCap(.round)
+            context.setLineJoin(.round)
+            context.setStrokeColor(NSColor.black.withAlphaComponent(0.5).cgColor)
+            context.strokeLineSegments(between: [CGPoint(x: barX, y: midY - halfHeight),
+                                                 CGPoint(x: barX, y: midY + halfHeight)])
+            context.translateBy(x: tipX + depth / 2, y: midY)
+            context.rotate(by: .pi * (t - 1))
+            context.move(to: CGPoint(x: depth / 2, y: halfHeight))
+            context.addLine(to: CGPoint(x: -depth / 2, y: 0))
+            context.addLine(to: CGPoint(x: depth / 2, y: -halfHeight))
+            context.setStrokeColor(NSColor.black.cgColor)
+            context.strokePath()
             return true
         }
         image.isTemplate = true
